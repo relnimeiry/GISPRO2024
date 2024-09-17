@@ -24,7 +24,7 @@ library(jsonlite)
 
 # SCRAPE DIRECTORY OF BUSINESSES ------------------------------------------
 # Function to scrape a single page
-function(page_url) {
+scrape_page<-function(page_url) {
   webpage <- read_html(page_url)
   
   # Extract business names
@@ -63,7 +63,7 @@ function(page_url) {
   )
   
   return(data)
-}->scrape_page
+}
 
 # Base URL and page range
 "https://blackownedmaine.com/bom-listing/?sort_by=business_name&zip_code&within_miles&lpage="->base_url
@@ -85,7 +85,7 @@ map_df(page_urls, scrape_page)->all_data
 
 
 # Function to scrape a single page
-function(url) {
+extract_business_info <-function(url) {
   page <- read_html(url)
   
   # Extract Title, Description, and Webpage
@@ -129,35 +129,34 @@ function(url) {
     Facebook_Page = ifelse(length(facebook) == 0, NA, facebook),
     Instagram_Page = ifelse(length(instagram) == 0, NA, instagram),
     Description_Details = ifelse(length(description_details) == 0, NA, description_details),
-    Business_website = ifelse(length(business_website) == 0, NA, business_website),
+    Business_Website = ifelse(length(business_website) == 0, NA, business_website),
     Language_Spoken = ifelse(length(language_spoken) == 0, NA, language_spoken)
-  )
-}-> extract_business_info 
+  ) } 
 # Function to clean and standardize phone numbers
-function(phone) {
+standardize_phone<-function(phone) {
   phone %>%
     str_remove_all("\\s") %>%                          # Remove whitespace
     str_replace_all("[^0-9x]", "") %>%                 # Remove non-numeric and non-'x' characters
     str_replace_all("x", " x")                         # Add space before 'x' if present
-} -> standardize_phone
+} 
 # Function to clean extra whitespace
-function(text) {
+clean_whitespace<-function(text) {
   text %>%
     str_squish() %>%                                   # Remove excessive whitespace
     str_trim()                                         # Trim leading/trailing whitespace
-}-> clean_whitespace
+}
 # Function to remove quotes from description
-function(text) {
+remove_quotes<- function(text) {
   text %>%
     str_replace_all("[“”]", "") %>%                    # Remove left and right quotes
     str_replace_all("\"", "") # %>%                         # Remove remaining quotes
     
-}-> remove_quotes
-function(title) {
+}
+clean_title<-function(title) {
   # Remove the part of the title after " - Black Owned Maine"
   cleaned_title <- gsub(" - Black Owned Maine$", "", title)
   return(cleaned_title)
-}-> clean_title 
+} 
 
 
 # > scrape all subdirectory pages of businesses ---------------------------
@@ -187,9 +186,37 @@ result %>%
   )  %>% 
     merge(all_data, 
           by.y = "Business_URL",
-          by.x = "Webpage", all.y=T) ->results_cleaned
+          by.x = "Webpage", all.y=T) %>% 
+  rename(Business_City = Business_Address,
+         Description_Short = Description.x, 
+         # Business_Website = Business_website,
+         Description_Long = Description_Details,
+         Description_Complete = Description.y,
+         Business_Address = Address) %>% 
+  mutate(Business_City= case_when(grepl(x = Business_City, "Portland") ~ "Portland, Maine", TRUE~ Business_City)) %>% 
+  dplyr::select(-Title) %>% 
+  dplyr::select(
+
+Name_of_Business  ,
+Webpage             ,
+Business_Website    ,
+Description_Short   ,
+Description_Long    ,
+Description_Complete ,
+Category    ,
+Language_Spoken  ,   
+Business_Address    ,
+Business_City       ,
+Email               ,
+Phone               ,
+Facebook_Page       ,
+Instagram_Page      ,
+Source              )->results_cleaned
+
   
-write_csv(data, "Black_Owned_Businesses_Maine.csv")
+
+ 
+write_csv(results_cleaned, "Black_Owned_Businesses_Maine.csv")
 
 
 
