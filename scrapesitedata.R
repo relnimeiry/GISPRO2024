@@ -217,6 +217,7 @@ Source              )->results_cleaned
 
  
 write_csv(results_cleaned, "Black_Owned_Businesses_Maine.csv")
+# in excel
 
 
 
