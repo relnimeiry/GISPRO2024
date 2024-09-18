@@ -239,5 +239,295 @@ Source              )->results_cleaned
  
 write_csv(results_cleaned, "Black_Owned_Businesses_Maine.csv")
 
+results_cleaned %>% 
+  filter(Business_City %in% "Portland, Maine") 
 
 
+install.packages("tidygeocoder")
+install.packages("osmdata")
+install.packages("sf")
+install.packages('ggmap')
+library('tidygeocoder')
+library('osmdata')
+library("sf")
+library('ggmap')
+
+
+results_cleaned %>% head %>% 
+  geocode(address = Business_Address,
+          method = 'osm', lat = latitude , long = longitude)->geocoded_data
+
+# Install necessary packages if not already installed
+# install.packages(c("osmdata", "sf", "ggplot2", "dplyr", "ggmap"))
+
+library(osmdata)
+library(sf)
+library(ggplot2)
+library(dplyr)
+library(ggmap)
+
+# Define the bounding box for Portland, Maine
+bbox <- c(-70.3, 43.6, -70.1, 43.8)
+
+# Retrieve Portland city boundary from OSM
+portland_data <- opq(bbox = bbox) %>% 
+  add_osm_feature(key = 'boundary', value = 'administrative') %>%
+  add_osm_feature(key = 'name', value = 'Portland') %>%
+  add_osm_feature(key = 'admin_level', value = '8') %>%  # Admin level for cities
+  osmdata_sf()
+
+# Convert to a data frame
+portland_df <- portland_data$osm_multipolygons %>% st_drop_geometry() %>% as.data.frame()
+
+# Filter to get Portland city boundary
+portland_boundary <- portland_data$osm_multipolygons %>%
+  filter(name == "Portland" & place == "city" & `tiger:STATEFP` == "23")
+
+# Plot the Portland boundary to confirm it's correct
+ggplot() +
+  geom_sf(data = portland_boundary, fill = 'blue', color = 'black') +
+  theme_minimal() +
+  labs(title = "Portland City Boundary")
+
+
+leaf
+# Define a function to check if a point is within the Portland boundary
+is_within_portland <- function(address, portland_boundary_sf) {
+  
+  # Set working directory and read API token
+  working <- "/Users/rashaelnimeiry/Library/Mobile Documents/com~apple~CloudDocs/geotruth"
+  
+  # Read the Google Maps API key from the Excel file
+  token <- readxl::read_xlsx(glue::glue('{working}/keys/tokens.xlsx')) %>% 
+    filter(Program == 'googlegeocode') %>%
+    pull(key)
+  
+  # Register Google Maps API key
+  register_google(key = token)
+  
+  # Geocode the address with error handling
+  coords <- tryCatch({
+    geocode(address)
+  }, error = function(e) {
+    message(paste("Geocoding failed for address:", address, "Error:", e$message))
+    return(data.frame(lon = NA, lat = NA))
+  })
+  
+  # Check if geocoding was successful
+  if (is.na(coords$lon) || is.na(coords$lat)) {
+    return(FALSE)
+  }
+  
+  # Create a spatial point object
+  point_sf <- st_as_sf(data.frame(lon = coords$lon, lat = coords$lat), coords = c("lon", "lat"), crs = 4326)
+  
+  # Check if the point is within the boundary
+  within_boundary <- st_intersects(point_sf, portland_boundary_sf, sparse = FALSE)
+  
+  # Return TRUE if point is within boundary, otherwise FALSE
+  return(any(within_boundary))
+}
+
+
+
+
+
+# Filter businesses within Portland
+businesses_within_portland <- results_cleaned %>% 
+  filter(map_lgl(Business_Address, ~ is_within_portland(.x, portland_boundary)))
+
+results_cleaned %>% 
+  filter(Business_City %in% "Portland, Maine")-> inportland
+
+anti_join(x =  businesses_within_portland, by = "Name_of_Business", y = inportland)  %>% 
+  rbind(
+anti_join(y =  businesses_within_portland, by = "Name_of_Business", x = inportland) )%>% 
+  distinct() ->toadd
+
+# Define the list of cities you're interested in (case-insensitive)
+city_names <- c(
+  "Portland, Maine", 
+  "South Portland, Maine", 
+  "Peaks Island, Maine", 
+  "Cape Elizabeth, Maine", 
+  "Westbrook, Maine", 
+  "Falmouth, Maine", 
+  "Scarborough, Maine"
+)
+
+# Filter the data using purrr::map_lgl for case-insensitive matching
+results_cleaned %>%
+  filter(map_lgl(Business_City, function(city) {
+    any(map_lgl(city_names, ~ grepl(.x, city, ignore.case = TRUE)))
+  })) %>% 
+  distinct->allportlandcitylimit
+
+
+
+# businesses with out addressess  -----------------------------------------
+
+# Install necessary packages
+# install.packages("httr")
+# install.packages("jsonlite")
+
+library(httr)
+library(jsonlite)
+
+# Replace with your actual Google API key
+
+
+# Function to get business address by name using Google Places API
+get_business_address <- function(business_name) {
+  # Construct API request URL
+  working <- "/Users/rashaelnimeiry/Library/Mobile Documents/com~apple~CloudDocs/geotruth"
+  
+  # Read the Google Maps API key from the Excel file
+  token <- readxl::read_xlsx(glue::glue('{working}/keys/tokens.xlsx')) %>% 
+    filter(Program == 'googleplaces') %>%
+    pull(key)
+
+  url <- paste0(
+    "https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=",
+    URLencode(business_name), "&inputtype=textquery&fields=formatted_address,name&key=", token
+  )
+  
+  # Send GET request to Google Places API
+  res <- httr::GET(url)
+  
+  # Parse the result
+  data <- jsonlite::fromJSON(content(res, as = "text"))
+  
+  # Extract the address if available
+  if (length(data$candidates) > 0) {
+    return(data$candidates$formatted_address)
+  } else {
+    return(NA)
+  }
+}
+
+# Example business names
+businesses <- c("Starbucks", "Whole Foods", "Portland City Hall")
+
+results_cleaned$Business_Address
+# Get addresses for each business
+addresses <- sapply(glue::glue("{results_cleaned$Name_of_Business %>% head(10)} {results_cleaned$Business_City %>% head(10)}"), get_business_address)
+
+# Combine business names and addresses into a data frame
+business_addresses <- data.frame(Business = businesses, Address = addresses)
+
+print(addresses) %>% view
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# scratch -----------------------------------------------------------------
+
+# 
+# # Retrieve Portland city boundary from OSM
+# opq(bbox = c(-70.3, 43.6, -70.1, 43.8)) %>%  # Define bbox for Portland, Maine
+#   add_osm_feature(key = 'boundary', value = 'administrative') %>%
+#   add_osm_feature(key = 'name', value = 'Portland') %>%
+#   add_osm_feature(key = 'admin_level', value = '8') %>%  # Admin level for cities
+#   osmdata_sf()->portland_data
+# 
+# 
+# # Convert to a data frame
+# portland_df <- portland_data$osm_multipolygons %>% st_drop_geometry() %>% as.data.frame()
+# 
+# # Inspect the data frame
+# head(portland_df)
+# 
+# # Plot the data to visualize the boundaries
+# plot(portland_data$osm_multipolygons)
+# 
+# # Adjust the filtering based on available columns
+# portland_boundary <- portland_data$osm_multipolygons %>%
+#   filter(name == "Portland" & place == "city")  # Adjust according to available columns
+# 
+# 
+# # Filter for Portland, Maine
+# portland_boundary <- portland_df %>%
+#   filter(name == "Portland" & place == "city" & `tiger:STATEFP` == "23")
+# 
+# # View the filtered result
+# head(portland_boundary)
+# 
+# 
+# 
+# 
+# 
+# # -------------------------------------------------------------------------
+# 
+# portland_data <- opq(bbox = c(-70.3, 43.6, -70.1, 43.8)) %>%  # Define bbox for Portland, Maine
+#   add_osm_feature(key = 'boundary', value = 'administrative') %>%
+#   add_osm_feature(key = 'name', value = 'Portland') %>%
+#   add_osm_feature(key = 'admin_level', value = '8') %>%  # Admin level for cities
+#   osmdata_sf()
+# 
+# # Convert to a data frame
+# portland_df <- portland_data$osm_multipolygons %>% st_drop_geometry() %>% as.data.frame()
+# 
+# # Filter for Portland, Maine
+# portland_boundary <- portland_df %>%
+#   filter(name == "Portland" & place == "city" & `tiger:STATEFP` == "23")
+# 
+# # View the filtered result
+# print(portland_boundary)
+# plot(portland_boundary)
+# 
+# portland_boundary_sf <- portland_data$osm_multipolygons %>%
+#   filter(name == "Portland" & place == "city" & `tiger:STATEFP` == "23")
+# 
+# 
+# st_geometry_type(portland_boundary_sf)
+# 
+# 
+# library(ggplot2)
+# ggplot() +
+#   geom_sf(data = portland_boundary_sf, fill = 'blue', color = 'black') +
+#   theme_minimal() +
+#   labs(title = "Portland City Boundary")
+# 
+# # Example function to check if a point is within the Portland boundary
+# is_within_portland <- function(address, portland_boundary_sf) {
+#   # Geocode the address
+#   coords <- geocode(address)
+# 
+#   # Create a spatial point object
+#   point_sf <- st_as_sf(coords, coords = c("lon", "lat"), crs = 4326)
+# 
+#   # Check if the point is within the boundary
+#   st_intersects(point_sf, portland_boundary_sf, sparse = FALSE)
+# }
+# 
+# # library(dplyr)
+# 
+# # Example business data
+# businesses <- tibble(
+#   name = c("Business A", "Business B"),
+#   address = c("65 West Commercial Street, Portland, Maine", "676 Post Road, Wells, Maine")
+# )
+# 
+# businesses_within_portland <- businesses %>%
+#   filter(map_lgl(address, ~ is_within_portland(.x, portland_boundary_sf)))
+# 
+# print(businesses_within_portland)
+# 
+# 
+# 
+# 
+# 
+# 
